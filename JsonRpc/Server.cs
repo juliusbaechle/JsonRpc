@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 
 namespace JsonRpc
 {
-    internal class Server : IServer, IDisposable
+    public class Server : IServer, IDisposable
     {
         public Server(ushort a_port, String a_name)
         {
@@ -26,7 +26,8 @@ namespace JsonRpc
         public void Dispose()
         {
             m_terminate = true;
-            // m_socket.Shutdown(SocketShutdown.Both);
+            if (m_socket.Connected)
+                m_socket.Shutdown(SocketShutdown.Both);
             m_socket.Close();
             m_listenerThread.Join();
         }

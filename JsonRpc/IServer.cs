@@ -4,7 +4,7 @@ using System.Text;
 
 namespace JsonRpc
 {
-    internal interface IServer
+    public interface IServer : IDisposable
     {
         delegate void ConnectHandler(IClient client);
         event ConnectHandler ClientConnected;

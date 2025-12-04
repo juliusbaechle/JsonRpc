@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="JsonRpc/JsonRpc.csproj" />
+  <Project Path="Tests/Tests.csproj" Id="4b6fff2b-5a1a-4962-b747-7a9503dbad9b" />
 </Solution>

@@ -4,6 +4,6 @@ using System.Text;
 
 namespace JsonRpc
 {
-    enum LogSeverity { Debug, Info, Warning, Error };
-    delegate void LogHandler(String msg, LogSeverity severity);
+    public enum LogSeverity { Debug, Info, Warning, Error };
+    public delegate void LogHandler(String msg, LogSeverity severity);
 }

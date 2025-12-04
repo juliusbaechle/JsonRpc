@@ -1,15 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 
 namespace JsonRpc
 {
-    internal class Client : IClient, IDisposable
+    public class Client : IClient, IDisposable
     {
         public Client(EndPoint a_endPoint, String a_name)
         {
@@ -18,6 +20,7 @@ namespace JsonRpc
             m_client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             SetupSocket(m_client);
             StartListening();
+            SetConnected(m_client.Connected);
         }
 
         public Client(Socket a_socket, String a_name)
@@ -27,6 +30,7 @@ namespace JsonRpc
             m_endPoint = a_socket.RemoteEndPoint;
             SetupSocket(m_client);
             Send("name: " + m_name);
+            SetConnected(m_client.Connected);
         }
 
         static void SetupSocket(Socket socket)
@@ -34,6 +38,21 @@ namespace JsonRpc
             socket.Blocking = true;
             socket.ReceiveTimeout = 0;
             socket.SendTimeout = 0;
+        }
+
+        void SetConnected(bool a_connected)
+        {
+            if (m_connected == a_connected) return;
+            if (a_connected)
+            {
+                Log?.Invoke("'" + m_name + "' socket connected", LogSeverity.Info);
+                Send("name: " + m_name);
+            } else
+            {
+                Log?.Invoke("'" + m_name + "' socket disconnected", LogSeverity.Info);
+            }
+            ConnectionStatusChanged?.Invoke(a_connected);
+            m_connected = a_connected;
         }
 
         public void StartListening()
@@ -49,10 +68,11 @@ namespace JsonRpc
 
         public void Dispose()
         {
-            m_terminate = true;
+            m_terminate.Cancel();
             m_client.Shutdown(SocketShutdown.Both);
-            m_listeningThread.Join();
+            m_listeningThread?.Join();
             m_client.Dispose();
+            m_terminate.Dispose();
         }
 
         public ulong ClientId { get { return m_clientId; } }
@@ -90,56 +110,37 @@ namespace JsonRpc
 
         void Run()
         {
-            while (!m_terminate)
+            while (!m_terminate.IsCancellationRequested)
             {
-                if (m_client.Connected)
+                try
                 {
-                    ConnectedState();
-                } else
-                {
-                    NotConnectedState();
+                    if (m_client.Connected)
+                    {
+                        Receive().Wait();
+                    }
+                    else
+                    {
+                        Connect().Wait();
+                    }
+                    SetConnected(m_client.Connected);
+                } catch {
+                    Log?.Invoke("'" + m_name + "' socket terminated", LogSeverity.Info);
                 }
             }
         }
 
-        void ConnectedState()
+        async Task Receive()
         {
             var buffer = new byte[1024];
-            var task = m_client.ReceiveAsync(buffer);
-
-            while (m_client.Connected && !m_terminate)
-            {
-                if (task.IsCompletedSuccessfully)
-                {
-                    Parse(buffer, task.Result);
-                }
-                if (task.IsCompleted)
-                {
-                    task = m_client.ReceiveAsync(buffer);
-                }
-                Thread.Sleep(5);
-            }
-
-            // Log?.Invoke("'" + m_name + "' socket to '" + m_peerName + "' disconnected", LogSeverity.Info);
-            ConnectionStatusChanged?.Invoke(false);
+            var bytes = await m_client.ReceiveAsync(buffer, m_terminate.Token);
+            if (bytes > 0)
+                Parse(buffer, bytes);
         }
 
-        void NotConnectedState()
+        async Task Connect()
         {
             Log?.Invoke("'" + m_name + "' socket connecting ...", LogSeverity.Info);
-            
-            do {
-                var task = m_client.ConnectAsync(m_endPoint);
-                if (task.IsFaulted)
-                {
-                    task = m_client.ConnectAsync(m_endPoint);
-                }
-                Thread.Sleep(5);
-            } while (!m_client.Connected && !m_terminate);
-            
-            Log?.Invoke("'" + m_name + "' socket connected", LogSeverity.Info);
-            ConnectionStatusChanged?.Invoke(true);
-            Send("name: " + m_name);
+            await m_client.ConnectAsync(m_endPoint, m_terminate.Token);
         }
 
         void Parse(byte[] buffer, int bytesReceived)
@@ -186,7 +187,9 @@ namespace JsonRpc
         String m_name = "";
         String m_readBuffer = "";
         EndPoint m_endPoint;
-        volatile bool m_terminate = false;
-        Thread m_listeningThread;
+        Thread? m_listeningThread;
+        bool m_connected = false;
+
+        CancellationTokenSource m_terminate = new CancellationTokenSource();
     }
 }

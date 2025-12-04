@@ -6,7 +6,7 @@ using System.Xml.Schema;
 
 namespace JsonRpc
 {
-    internal interface IClient
+    public interface IClient : IDisposable
     {
         ulong ClientId { get; }
         String PeerName { get; }
